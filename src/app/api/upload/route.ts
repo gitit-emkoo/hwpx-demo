@@ -52,7 +52,8 @@ ${trimmedText}
 3. 반드시 아래 JSON 형식만 반환 (코드블록 없이, 설명 없이):
 {"processed_text":"치환자가 삽입된 원문 전체","fields":[{"key":"snake_case_key","label":"한국어 레이블","type":"text","required":true}]}
 
-type 규칙: 체크박스/선택지 → "select" + options배열, 여러줄 → "textarea", 날짜 → "date", 나머지 → "text"`
+type 규칙: 체크박스/선택지 → "select" + options배열, 여러줄 → "textarea", 날짜 → "date", 나머지 → "text"
+모든 fields의 required는 반드시 false로 설정할 것`
       }]
     })
 

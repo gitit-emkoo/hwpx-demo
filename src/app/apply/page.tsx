@@ -115,7 +115,7 @@ export default function ApplyPage() {
     setDownloading(false)
   }
 
-  const filled = selected ? selected.fields.filter(f => values[f.key]).length : 0
+  const filled = selected ? selected.fields.filter(f => values[f.key]?.trim()).length : 0
   const total  = selected?.fields.length ?? 0
   const progress = total > 0 ? Math.round((filled / total) * 100) : 0
 
@@ -200,8 +200,8 @@ export default function ApplyPage() {
             </div>
           </div>
 
-          <div className={`grid gap-6 ${showPreview ? 'grid-cols-2' : 'grid-cols-1 max-w-xl'}`}>
-            {/* 왼쪽: 입력 폼 */}
+          <div className={`grid gap-6 items-start ${showPreview ? 'grid-cols-2' : 'grid-cols-1 max-w-xl'}`}>
+            {/* 왼쪽: 입력 폼 (스크롤) */}
             <div className="space-y-4">
               {selected.fields.map((f: PlaceholderField) => (
                 <div
@@ -210,7 +210,6 @@ export default function ApplyPage() {
                 >
                   <label className="label">
                     {f.label}
-                    {f.required && <span className="text-red-400 ml-0.5">*</span>}
                   </label>
                   {f.type === 'textarea' ? (
                     <textarea
@@ -248,9 +247,9 @@ export default function ApplyPage() {
               ))}
             </div>
 
-            {/* 오른쪽: 실시간 문서 미리보기 */}
+            {/* 오른쪽: 실시간 문서 미리보기 — sticky 고정 */}
             {showPreview && (
-              <div>
+              <div className="sticky top-[72px]">
                 <div className="flex items-center gap-2 mb-2">
                   <label className="label mb-0">문서 미리보기</label>
                   <div className="flex gap-2 text-xs text-gray-400">
@@ -261,8 +260,8 @@ export default function ApplyPage() {
                 </div>
                 <div
                   ref={previewRef}
-                  className="card p-5 text-sm leading-8 whitespace-pre-wrap max-h-[640px] overflow-y-auto text-gray-700 bg-white"
-                  style={{ fontFamily: "'Malgun Gothic', '맑은 고딕', sans-serif" }}
+                  className="card p-5 text-sm leading-8 whitespace-pre-wrap overflow-y-auto text-gray-700 bg-white"
+                  style={{ fontFamily: "'Malgun Gothic', '맑은 고딕', sans-serif", maxHeight: 'calc(100vh - 200px)' }}
                 >
                   {renderPreview(selected, values, activeKey)}
                 </div>
