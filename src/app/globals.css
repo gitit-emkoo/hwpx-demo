@@ -1,0 +1,38 @@
+@import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css');
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body { font-family: 'Pretendard', system-ui, sans-serif; }
+}
+
+@layer components {
+  .btn {
+    @apply inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-150 disabled:opacity-40 disabled:cursor-not-allowed;
+  }
+  .btn-primary {
+    @apply btn bg-brand-600 text-white hover:bg-brand-700 active:scale-95;
+  }
+  .btn-secondary {
+    @apply btn bg-white text-gray-700 border border-gray-300 hover:bg-gray-50 active:scale-95;
+  }
+  .btn-danger {
+    @apply btn bg-red-50 text-red-600 border border-red-200 hover:bg-red-100;
+  }
+  .chip {
+    @apply inline-block bg-blue-50 text-blue-700 rounded px-1.5 py-0.5 text-xs font-mono border border-blue-200;
+  }
+  .card {
+    @apply bg-white rounded-xl border border-gray-200 shadow-sm;
+  }
+  .label {
+    @apply block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5;
+  }
+  .input {
+    @apply w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent transition;
+  }
+  .step-dot {
+    @apply w-7 h-7 rounded-full flex items-center justify-center text-xs font-semibold flex-shrink-0 transition-all;
+  }
+}
