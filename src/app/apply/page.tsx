@@ -1,16 +1,18 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import type { FormTemplate } from '@/lib/types'
+import { useState, useEffect, useRef } from 'react'
+import type { FormTemplate, PlaceholderField } from '@/lib/types'
 
 export default function ApplyPage() {
-  const [templates, setTemplates]   = useState<FormTemplate[]>([])
-  const [selected, setSelected]     = useState<FormTemplate | null>(null)
-  const [values, setValues]         = useState<Record<string, string>>({})
-  const [loading, setLoading]       = useState(true)
+  const [templates, setTemplates]     = useState<FormTemplate[]>([])
+  const [selected, setSelected]       = useState<FormTemplate | null>(null)
+  const [values, setValues]           = useState<Record<string, string>>({})
+  const [loading, setLoading]         = useState(true)
   const [downloading, setDownloading] = useState(false)
-  const [preview, setPreview]       = useState(false)
-  const [error, setError]           = useState<string | null>(null)
+  const [showPreview, setShowPreview] = useState(true)
+  const [activeKey, setActiveKey]     = useState<string | null>(null)
+  const [error, setError]             = useState<string | null>(null)
+  const previewRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     fetch('/api/templates')
@@ -22,21 +24,62 @@ export default function ApplyPage() {
   function selectTemplate(t: FormTemplate) {
     setSelected(t)
     setValues({})
-    setPreview(false)
+    setActiveKey(null)
   }
 
   function setValue(key: string, val: string) {
     setValues(prev => ({ ...prev, [key]: val }))
   }
 
-  function getPreviewText() {
-    if (!selected) return ''
-    let text = selected.processedText
-    selected.fields.forEach(f => {
-      text = text.split(`{{${f.key}}}`).join(values[f.key] || `[${f.label}]`)
-    })
-    return text
+  // 미리보기: processedText를 파싱해 치환자 위치에 하이라이트/값 표시
+  function renderPreview(template: FormTemplate, vals: Record<string, string>, active: string | null) {
+    const text = template.processedText
+    const parts: React.ReactNode[] = []
+    const regex = /\{\{([^}]+)\}\}/g
+    let last = 0
+    let match: RegExpExecArray | null
+
+    while ((match = regex.exec(text)) !== null) {
+      // 치환자 앞 일반 텍스트
+      if (match.index > last) {
+        parts.push(
+          <span key={last}>{text.slice(last, match.index)}</span>
+        )
+      }
+      const key = match[1]
+      const field = template.fields.find(f => f.key === key)
+      const val = vals[key]
+      const isActive = active === key
+
+      parts.push(
+        <span
+          key={match.index}
+          className={`inline-block rounded px-1 mx-0.5 text-sm font-medium border transition-all cursor-pointer ${
+            val
+              ? 'bg-green-50 border-green-300 text-green-800'
+              : isActive
+              ? 'bg-brand-100 border-brand-400 text-brand-800 ring-2 ring-brand-300'
+              : 'bg-yellow-50 border-yellow-300 text-yellow-700'
+          }`}
+          title={field?.label || key}
+        >
+          {val || `${field?.label || key}`}
+        </span>
+      )
+      last = match.index + match[0].length
+    }
+    if (last < text.length) {
+      parts.push(<span key={last}>{text.slice(last)}</span>)
+    }
+    return parts
   }
+
+  // 활성 필드로 미리보기 스크롤
+  useEffect(() => {
+    if (!activeKey || !previewRef.current) return
+    const el = previewRef.current.querySelector(`[title]`)
+    el?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }, [activeKey])
 
   async function handleDownload() {
     if (!selected) return
@@ -65,7 +108,9 @@ export default function ApplyPage() {
     setDownloading(false)
   }
 
-  const filled = selected ? selected.fields.filter(f => !f.required || values[f.key]).length : 0
+  const filled = selected ? selected.fields.filter(f => values[f.key]).length : 0
+  const total  = selected?.fields.length ?? 0
+  const progress = total > 0 ? Math.round((filled / total) * 100) : 0
 
   if (loading) return (
     <div className="flex justify-center py-20">
@@ -85,7 +130,6 @@ export default function ApplyPage() {
       )}
 
       {!selected ? (
-        /* 신청서 목록 */
         <div>
           {templates.length === 0 ? (
             <div className="card p-12 text-center text-gray-400">
@@ -111,81 +155,112 @@ export default function ApplyPage() {
           )}
         </div>
       ) : (
-        /* 폼 작성 화면 */
         <div>
-          <button className="btn-secondary mb-6" onClick={() => setSelected(null)}>
-            ← 목록으로
-          </button>
+          {/* 상단 헤더 */}
+          <div className="flex items-center justify-between mb-5">
+            <button className="btn-secondary" onClick={() => setSelected(null)}>← 목록으로</button>
+            <div className="flex items-center gap-3">
+              {/* 미리보기 토글 */}
+              <button
+                className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${showPreview ? 'bg-brand-600 text-white border-brand-600' : 'border-gray-200 text-gray-500 hover:bg-gray-50'}`}
+                onClick={() => setShowPreview(v => !v)}
+              >
+                {showPreview ? '📄 미리보기 닫기' : '📄 미리보기 열기'}
+              </button>
+              <button
+                className="btn-primary"
+                onClick={handleDownload}
+                disabled={downloading}
+              >
+                {downloading ? (
+                  <><span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />생성 중...</>
+                ) : '⬇ hwpx 다운로드'}
+              </button>
+            </div>
+          </div>
 
-          <div className="grid grid-cols-2 gap-6">
+          {/* 진행률 바 */}
+          <div className="mb-5">
+            <div className="flex justify-between text-xs text-gray-400 mb-1">
+              <span>{selected.title}</span>
+              <span>{filled} / {total} 입력됨</span>
+            </div>
+            <div className="w-full bg-gray-100 rounded-full h-1.5 overflow-hidden">
+              <div
+                className="h-1.5 bg-brand-500 rounded-full transition-all duration-300"
+                style={{ width: `${progress}%` }}
+              />
+            </div>
+          </div>
+
+          <div className={`grid gap-6 ${showPreview ? 'grid-cols-2' : 'grid-cols-1 max-w-xl'}`}>
             {/* 왼쪽: 입력 폼 */}
-            <div>
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="font-bold text-lg">{selected.title}</h2>
-                <span className="text-xs text-gray-400">{filled} / {selected.fields.length} 입력됨</span>
-              </div>
-
-              <div className="space-y-4">
-                {selected.fields.map(f => (
-                  <div key={f.key}>
-                    <label className="label">
-                      {f.label}
-                      {f.required && <span className="text-red-400 ml-0.5">*</span>}
-                    </label>
-                    {f.type === 'textarea' ? (
-                      <textarea
-                        className="input resize-none"
-                        rows={3}
-                        value={values[f.key] || ''}
-                        onChange={e => setValue(f.key, e.target.value)}
-                        placeholder={`${f.label}을 입력하세요`}
-                      />
-                    ) : f.type === 'select' ? (
-                      <select className="input" value={values[f.key] || ''} onChange={e => setValue(f.key, e.target.value)}>
-                        <option value="">선택하세요</option>
-                        {(f.options || []).map(o => <option key={o} value={o}>{o}</option>)}
-                      </select>
-                    ) : (
-                      <input
-                        className="input"
-                        type={f.type}
-                        value={values[f.key] || ''}
-                        onChange={e => setValue(f.key, e.target.value)}
-                        placeholder={f.type !== 'date' ? `${f.label}을 입력하세요` : undefined}
-                      />
-                    )}
-                  </div>
-                ))}
-              </div>
-
-              <div className="mt-6 flex gap-2">
-                <button className="btn-secondary" onClick={() => setPreview(!preview)}>
-                  {preview ? '미리보기 닫기' : '미리보기'}
-                </button>
-                <button
-                  className="btn-primary flex-1 justify-center"
-                  onClick={handleDownload}
-                  disabled={downloading}
+            <div className="space-y-4">
+              {selected.fields.map((f: PlaceholderField) => (
+                <div
+                  key={f.key}
+                  className={`p-3 rounded-xl border transition-all ${activeKey === f.key ? 'border-brand-400 bg-brand-50/50 shadow-sm' : 'border-transparent'}`}
                 >
-                  {downloading ? (
-                    <>
-                      <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                      생성 중...
-                    </>
-                  ) : '⬇ hwpx 다운로드'}
-                </button>
-              </div>
+                  <label className="label">
+                    {f.label}
+                    {f.required && <span className="text-red-400 ml-0.5">*</span>}
+                  </label>
+                  {f.type === 'textarea' ? (
+                    <textarea
+                      className="input resize-none"
+                      rows={3}
+                      value={values[f.key] || ''}
+                      onChange={e => setValue(f.key, e.target.value)}
+                      onFocus={() => setActiveKey(f.key)}
+                      onBlur={() => setActiveKey(null)}
+                      placeholder={`${f.label}을 입력하세요`}
+                    />
+                  ) : f.type === 'select' ? (
+                    <select
+                      className="input"
+                      value={values[f.key] || ''}
+                      onChange={e => setValue(f.key, e.target.value)}
+                      onFocus={() => setActiveKey(f.key)}
+                      onBlur={() => setActiveKey(null)}
+                    >
+                      <option value="">선택하세요</option>
+                      {(f.options || []).map(o => <option key={o} value={o}>{o}</option>)}
+                    </select>
+                  ) : (
+                    <input
+                      className="input"
+                      type={f.type}
+                      value={values[f.key] || ''}
+                      onChange={e => setValue(f.key, e.target.value)}
+                      onFocus={() => setActiveKey(f.key)}
+                      onBlur={() => setActiveKey(null)}
+                      placeholder={f.type !== 'date' ? `${f.label}을 입력하세요` : undefined}
+                    />
+                  )}
+                </div>
+              ))}
             </div>
 
-            {/* 오른쪽: 미리보기 */}
-            <div>
-              <label className="label">문서 미리보기</label>
-              <div className="card p-4 font-mono text-xs leading-relaxed whitespace-pre-wrap max-h-[580px] overflow-y-auto text-gray-700 bg-gray-50">
-                {preview ? getPreviewText() : (
-                  <span className="text-gray-400 italic">미리보기 버튼을 누르면 작성된 내용이 반영된 문서를 확인할 수 있습니다.</span>
-                )}
+            {/* 오른쪽: 실시간 문서 미리보기 */}
+            {showPreview && (
+              <div>
+                <div className="flex items-center gap-2 mb-2">
+                  <label className="label mb-0">문서 미리보기</label>
+                  <div className="flex gap-2 text-xs text-gray-400">
+                    <span className="flex items-center gap-1"><span className="inline-block w-3 h-3 rounded bg-yellow-100 border border-yellow-300" />미입력</span>
+                    <span className="flex items-center gap-1"><span className="inline-block w-3 h-3 rounded bg-green-100 border border-green-300" />입력됨</span>
+                    <span className="flex items-center gap-1"><span className="inline-block w-3 h-3 rounded bg-brand-100 border border-brand-400" />현재 필드</span>
+                  </div>
+                </div>
+                <div
+                  ref={previewRef}
+                  className="card p-5 text-sm leading-8 whitespace-pre-wrap max-h-[640px] overflow-y-auto text-gray-700 bg-white"
+                  style={{ fontFamily: "'Malgun Gothic', '맑은 고딕', sans-serif" }}
+                >
+                  {renderPreview(selected, values, activeKey)}
+                </div>
               </div>
-            </div>
+            )}
           </div>
         </div>
       )}
