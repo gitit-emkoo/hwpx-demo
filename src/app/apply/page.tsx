@@ -17,7 +17,14 @@ export default function ApplyPage() {
   useEffect(() => {
     fetch('/api/templates')
       .then(r => r.json())
-      .then(data => { setTemplates(data); setLoading(false) })
+      .then(data => {
+        if (Array.isArray(data)) {
+          setTemplates(data)
+        } else {
+          setError(data?.error || '목록 로드 실패')
+        }
+        setLoading(false)
+      })
       .catch(() => { setError('목록 로드 실패'); setLoading(false) })
   }, [])
 

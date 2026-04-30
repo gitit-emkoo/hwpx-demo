@@ -13,7 +13,8 @@ export async function GET() {
       .sort((a: any, b: any) => (b.createdAt ?? 0) - (a.createdAt ?? 0))
     return NextResponse.json(templates)
   } catch (err) {
-    console.error(err)
-    return NextResponse.json({ error: '목록을 불러올 수 없습니다.' }, { status: 500 })
+    const msg = err instanceof Error ? err.message : String(err)
+    console.error('[templates] error:', msg)
+    return NextResponse.json({ error: msg }, { status: 500 })
   }
 }
