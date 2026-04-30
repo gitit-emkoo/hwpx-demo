@@ -1,9 +1,17 @@
 'use client'
 
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import type { FormTemplate, PlaceholderField } from '@/lib/types'
 
 type Step = 'upload' | 'analyzing' | 'review' | 'done'
+
+const ANALYZING_MESSAGES = [
+  'hwpx 파일에서 텍스트를 추출하고 있습니다...',
+  'Claude AI가 문서 구조를 파악하고 있습니다...',
+  '빈칸과 입력 필드를 감지하고 있습니다...',
+  '치환자 키를 생성하고 있습니다...',
+  '거의 다 됐습니다...',
+]
 
 export default function AdminPage() {
   const [step, setStep]             = useState<Step>('upload')
@@ -12,7 +20,27 @@ export default function AdminPage() {
   const [template, setTemplate]     = useState<FormTemplate | null>(null)
   const [error, setError]           = useState<string | null>(null)
   const [saving, setSaving]         = useState(false)
+  const [elapsed, setElapsed]       = useState(0)
+  const [msgIdx, setMsgIdx]         = useState(0)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const timerRef     = useRef<ReturnType<typeof setInterval> | null>(null)
+  const msgTimerRef  = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  useEffect(() => {
+    if (step === 'analyzing') {
+      setElapsed(0)
+      setMsgIdx(0)
+      timerRef.current = setInterval(() => setElapsed(s => s + 1), 1000)
+      msgTimerRef.current = setInterval(() => setMsgIdx(i => Math.min(i + 1, ANALYZING_MESSAGES.length - 1)), 4000)
+    } else {
+      if (timerRef.current)    clearInterval(timerRef.current)
+      if (msgTimerRef.current) clearInterval(msgTimerRef.current)
+    }
+    return () => {
+      if (timerRef.current)    clearInterval(timerRef.current)
+      if (msgTimerRef.current) clearInterval(msgTimerRef.current)
+    }
+  }, [step])
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0]
@@ -131,9 +159,25 @@ export default function AdminPage() {
       {/* STEP: 분석중 */}
       {step === 'analyzing' && (
         <div className="card p-12 max-w-xl text-center">
-          <div className="inline-block w-10 h-10 border-4 border-brand-200 border-t-brand-600 rounded-full animate-spin mb-4" />
-          <p className="font-semibold mb-1">Claude AI가 신청서를 분석 중입니다...</p>
-          <p className="text-sm text-gray-500">hwpx에서 텍스트를 추출하고 치환자를 생성하고 있습니다.</p>
+          <div className="inline-block w-10 h-10 border-4 border-brand-200 border-t-brand-600 rounded-full animate-spin mb-6" />
+
+          {/* 진행 메시지 */}
+          <p className="font-semibold mb-2">Claude AI가 신청서를 분석 중입니다...</p>
+          <p className="text-sm text-brand-600 mb-6 min-h-[20px] transition-all">{ANALYZING_MESSAGES[msgIdx]}</p>
+
+          {/* 진행 바 */}
+          <div className="w-full bg-gray-100 rounded-full h-1.5 mb-3 overflow-hidden">
+            <div
+              className="h-1.5 bg-brand-500 rounded-full transition-all duration-1000"
+              style={{ width: `${Math.min((elapsed / 30) * 100, 95)}%` }}
+            />
+          </div>
+
+          {/* 소요 시간 */}
+          <p className="text-xs text-gray-400">
+            {Math.floor(elapsed / 60) > 0 && `${Math.floor(elapsed / 60)}분 `}
+            {elapsed % 60}초 경과 · 보통 20~40초 소요
+          </p>
         </div>
       )}
 

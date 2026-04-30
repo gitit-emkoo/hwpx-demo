@@ -63,7 +63,14 @@ ${originalText}
     })
 
     const rawText = message.content.map(b => b.type === 'text' ? b.text : '').join('')
-    const clean   = rawText.replace(/```json|```/g, '').trim()
+
+    // 코드블록 제거 후 JSON 객체 부분만 추출
+    let clean = rawText.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim()
+    const jsonStart = clean.indexOf('{')
+    const jsonEnd   = clean.lastIndexOf('}')
+    if (jsonStart === -1 || jsonEnd === -1) throw new Error('Claude 응답에서 JSON을 찾을 수 없습니다.')
+    clean = clean.slice(jsonStart, jsonEnd + 1)
+
     const parsed  = JSON.parse(clean) as { processed_text: string; fields: PlaceholderField[] }
 
     // 4. Firestore에 템플릿 저장
