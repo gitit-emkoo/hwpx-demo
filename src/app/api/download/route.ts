@@ -37,7 +37,7 @@ export async function POST(req: NextRequest) {
     return new NextResponse(new Uint8Array(result), {
       headers: {
         'Content-Type':        'application/octet-stream',
-        'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(template.title)}_작성완료.hwpx`,
+        'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(template.title + '_작성완료.hwpx')}`,
       }
     })
 
