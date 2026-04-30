@@ -34,7 +34,7 @@ export async function POST(req: NextRequest) {
       createdAt: Date.now(),
     })
 
-    return new NextResponse(result, {
+    return new NextResponse(new Uint8Array(result), {
       headers: {
         'Content-Type':        'application/octet-stream',
         'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(template.title)}_작성완료.hwpx`,
