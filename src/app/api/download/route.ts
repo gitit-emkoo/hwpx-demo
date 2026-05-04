@@ -20,12 +20,8 @@ export async function POST(req: NextRequest) {
     const fileRef = bucket.file(template.hwpxStoragePath)
     const [hwpxBuffer] = await fileRef.download()
 
-    // 치환자 적용
-    const result = await applyPlaceholdersToHwpx(
-      hwpxBuffer,
-      template.processedText,
-      values
-    )
+    // Storage hwpx에 이미 {{key}}가 심어져 있음 → 직접 replace
+    const result = await applyPlaceholdersToHwpx(hwpxBuffer, values, template.fields)
 
     // 제출 기록 저장
     await adminDb.collection('submissions').add({

@@ -9,6 +9,7 @@ export default function ApplyPage() {
   const [values, setValues]           = useState<Record<string, string>>({})
   const [loading, setLoading]         = useState(true)
   const [downloading, setDownloading] = useState(false)
+  const [downloadingTemplate, setDownloadingTemplate] = useState(false)
   const [showPreview, setShowPreview] = useState(true)
   const [activeKey, setActiveKey]     = useState<string | null>(null)
   const [error, setError]             = useState<string | null>(null)
@@ -115,6 +116,34 @@ export default function ApplyPage() {
     setDownloading(false)
   }
 
+  /** 입력 없이 Storage에 심어 둔 치환자 그대로 확인용 */
+  async function handleDownloadTemplateOnly() {
+    if (!selected) return
+    setDownloadingTemplate(true)
+    setError(null)
+    try {
+      const res = await fetch('/api/download', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ templateId: selected.id, values: {} }),
+      })
+      if (!res.ok) {
+        const d = await res.json()
+        throw new Error(d.error)
+      }
+      const blob = await res.blob()
+      const url  = URL.createObjectURL(blob)
+      const a    = document.createElement('a')
+      a.href     = url
+      a.download = `${selected.title}_양식_치환자포함.hwpx`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '다운로드 실패')
+    }
+    setDownloadingTemplate(false)
+  }
+
   const filled = selected ? selected.fields.filter(f => values[f.key]?.trim()).length : 0
   const total  = selected?.fields.length ?? 0
   const progress = total > 0 ? Math.round((filled / total) * 100) : 0
@@ -175,9 +204,17 @@ export default function ApplyPage() {
                 {showPreview ? '📄 미리보기 닫기' : '📄 미리보기 열기'}
               </button>
               <button
+                className="btn-secondary text-sm"
+                onClick={handleDownloadTemplateOnly}
+                disabled={downloadingTemplate || downloading}
+                title="입력 전 · XML에 심어 둔 {{치환자}} 그대로 확인"
+              >
+                {downloadingTemplate ? '받는 중…' : '📋 양식만 받기 (치환자 확인)'}
+              </button>
+              <button
                 className="btn-primary"
                 onClick={handleDownload}
-                disabled={downloading}
+                disabled={downloading || downloadingTemplate}
               >
                 {downloading ? (
                   <><span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />생성 중...</>

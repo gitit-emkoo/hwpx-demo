@@ -7,6 +7,7 @@ type Step = 'upload' | 'analyzing' | 'review' | 'done'
 
 const ANALYZING_MESSAGES = [
   'hwpx 파일에서 텍스트를 추출하고 있습니다...',
+  '참조 이미지가 있으면 Claude가 화면으로 입력 칸을 구분합니다...',
   'Claude AI가 문서 구조를 파악하고 있습니다...',
   '빈칸과 입력 필드를 감지하고 있습니다...',
   '치환자 키를 생성하고 있습니다...',
@@ -17,14 +18,21 @@ export default function AdminPage() {
   const [step, setStep]             = useState<Step>('upload')
   const [title, setTitle]           = useState('')
   const [file, setFile]             = useState<File | null>(null)
+  const [referenceImages, setReferenceImages] = useState<File[]>([])
   const [template, setTemplate]     = useState<FormTemplate | null>(null)
   const [error, setError]           = useState<string | null>(null)
   const [saving, setSaving]         = useState(false)
   const [elapsed, setElapsed]       = useState(0)
   const [msgIdx, setMsgIdx]         = useState(0)
-  const fileInputRef = useRef<HTMLInputElement>(null)
-  const timerRef     = useRef<ReturnType<typeof setInterval> | null>(null)
-  const msgTimerRef  = useRef<ReturnType<typeof setInterval> | null>(null)
+  const [newFieldLabel, setNewFieldLabel] = useState('')
+  const [newFieldKey, setNewFieldKey]     = useState('')
+  const [newFieldType, setNewFieldType]   = useState<PlaceholderField['type']>('text')
+  const [addingField, setAddingField]     = useState(false)
+  const fileInputRef    = useRef<HTMLInputElement>(null)
+  const imageInputRef   = useRef<HTMLInputElement>(null)
+  const textareaRef     = useRef<HTMLTextAreaElement>(null)
+  const timerRef        = useRef<ReturnType<typeof setInterval> | null>(null)
+  const msgTimerRef     = useRef<ReturnType<typeof setInterval> | null>(null)
 
   useEffect(() => {
     if (step === 'analyzing') {
@@ -50,6 +58,12 @@ export default function AdminPage() {
     setError(null)
   }
 
+  function handleReferenceImagesChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const list = e.target.files ? Array.from(e.target.files) : []
+    setReferenceImages(list)
+    setError(null)
+  }
+
   async function handleUpload() {
     if (!file) return
     setStep('analyzing')
@@ -58,6 +72,7 @@ export default function AdminPage() {
       const fd = new FormData()
       fd.append('file', file)
       fd.append('title', title)
+      referenceImages.forEach(img => fd.append('images', img))
       const res  = await fetch('/api/upload', { method: 'POST', body: fd })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || '업로드 실패')
@@ -66,18 +81,32 @@ export default function AdminPage() {
     } catch (err) {
       setError(err instanceof Error ? err.message : '오류 발생')
       setStep('upload')
+      setReferenceImages([])
     }
   }
 
   async function handleSave() {
     if (!template) return
+    // processedText에 실제로 사용된 key만 fields에 남기기
+    const usedKeys = new Set<string>()
+    const regex = /\{\{([^}]+)\}\}/g
+    let m: RegExpExecArray | null
+    while ((m = regex.exec(template.processedText)) !== null) usedKeys.add(m[1])
+    const syncedFields = template.fields.filter(f => usedKeys.has(f.key))
+    // processedText에 있지만 fields에 없는 key는 자동으로 text 타입으로 추가
+    usedKeys.forEach(key => {
+      if (!syncedFields.find(f => f.key === key)) {
+        syncedFields.push({ key, label: key, type: 'text', required: false })
+      }
+    })
     setSaving(true)
     try {
-      await fetch(`/api/templates/${template.id}`, {
+      const res = await fetch(`/api/templates/${template.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fields: template.fields, processedText: template.processedText, title }),
+        body: JSON.stringify({ fields: syncedFields, processedText: template.processedText, title }),
       })
+      if (!res.ok) throw new Error('저장 실패')
       setStep('done')
     } catch {
       setError('저장 실패')
@@ -88,8 +117,57 @@ export default function AdminPage() {
   function updateField(i: number, patch: Partial<PlaceholderField>) {
     if (!template) return
     const fields = [...template.fields]
+    const oldKey = fields[i].key
     fields[i] = { ...fields[i], ...patch }
-    setTemplate({ ...template, fields })
+    // key가 바뀌면 processedText도 함께 업데이트
+    if (patch.key && patch.key !== oldKey) {
+      const newProcessed = template.processedText.split(`{{${oldKey}}}`).join(`{{${patch.key}}}`)
+      setTemplate({ ...template, fields, processedText: newProcessed })
+    } else {
+      setTemplate({ ...template, fields })
+    }
+  }
+
+  function deleteField(i: number) {
+    if (!template) return
+    const field = template.fields[i]
+    const fields = template.fields.filter((_, idx) => idx !== i)
+    // processedText에서 해당 치환자 제거
+    const newProcessed = template.processedText.split(`{{${field.key}}}`).join(`[${field.label}]`)
+    setTemplate({ ...template, fields, processedText: newProcessed })
+  }
+
+  // 커서 위치에 {{key}} 삽입
+  function insertPlaceholderAtCursor(key: string) {
+    if (!template || !textareaRef.current) return
+    const ta = textareaRef.current
+    const start = ta.selectionStart
+    const end   = ta.selectionEnd
+    const text  = template.processedText
+    const newText = text.slice(0, start) + `{{${key}}}` + text.slice(end)
+    setTemplate({ ...template, processedText: newText })
+    // 커서를 삽입 후 위치로
+    setTimeout(() => {
+      ta.selectionStart = ta.selectionEnd = start + key.length + 4
+      ta.focus()
+    }, 0)
+  }
+
+  function addField() {
+    if (!template || !newFieldKey || !newFieldLabel) return
+    const key = newFieldKey.trim().replace(/\s+/g, '_').toLowerCase()
+    if (template.fields.find(f => f.key === key)) {
+      setError(`키 '${key}'가 이미 존재합니다.`)
+      return
+    }
+    const newField: PlaceholderField = { key, label: newFieldLabel, type: newFieldType, required: false }
+    setTemplate({ ...template, fields: [...template.fields, newField] })
+    setNewFieldKey('')
+    setNewFieldLabel('')
+    setNewFieldType('text')
+    setAddingField(false)
+    // 커서 위치에 자동 삽입
+    insertPlaceholderAtCursor(key)
   }
 
   const steps = ['업로드', 'AI 분석', '검토·수정', '완료']
@@ -127,6 +205,30 @@ export default function AdminPage() {
           <div className="mb-4">
             <label className="label">신청서 제목</label>
             <input className="input" value={title} onChange={e => setTitle(e.target.value)} placeholder="예) 2026년 장학금 신청서" />
+          </div>
+          <div className="mb-4">
+            <label className="label">참조 이미지 (선택, 여러 장 가능)</label>
+            <p className="text-xs text-gray-500 mb-2">
+              신청서에서 입력해야 할 페이지만 PNG/JPEG로 저장해 순서대로 선택하세요. hwpx 1개에 이미지 여러 장을 매칭합니다.
+            </p>
+            <div
+              className="border border-dashed border-gray-300 rounded-xl p-4 text-center cursor-pointer hover:border-brand-400 hover:bg-brand-50 transition-colors"
+              onClick={() => imageInputRef.current?.click()}
+            >
+              <input
+                ref={imageInputRef}
+                type="file"
+                accept="image/png,image/jpeg,image/webp,image/gif"
+                multiple
+                className="hidden"
+                onChange={handleReferenceImagesChange}
+              />
+              {referenceImages.length > 0 ? (
+                <p className="text-sm font-medium">{referenceImages.length}장 선택됨 · 다시 클릭해 변경</p>
+              ) : (
+                <p className="text-sm text-gray-600">클릭하여 이미지 추가 (비워두면 기존 방식만 사용)</p>
+              )}
+            </div>
           </div>
           <div className="mb-6">
             <label className="label">hwpx 파일</label>
@@ -183,57 +285,150 @@ export default function AdminPage() {
 
       {/* STEP: 검토·수정 */}
       {step === 'review' && template && (
-        <div className="grid grid-cols-2 gap-6">
-          {/* 왼쪽: 미리보기 */}
-          <div>
-            <label className="label">처리된 문서 미리보기</label>
-            <div className="card p-4 font-mono text-xs leading-relaxed whitespace-pre-wrap max-h-[500px] overflow-y-auto text-gray-700">
-              {template.processedText.replace(/\{\{([^}]+)\}\}/g, '[$1]')}
+        <div className="grid grid-cols-2 gap-6 items-start">
+
+          {/* 왼쪽: processedText 직접 편집 */}
+          <div className="sticky top-[72px]">
+            <div className="flex items-center justify-between mb-2">
+              <label className="label mb-0">문서 편집</label>
+              <span className="text-xs text-gray-400">치환자 위치에 커서를 놓고 오른쪽에서 필드 삽입</span>
             </div>
+            {/* 하이라이트 미리보기 */}
+            <div className="card p-3 text-xs leading-7 whitespace-pre-wrap max-h-[220px] overflow-y-auto text-gray-700 bg-gray-50 mb-2">
+              {template.processedText.split(/(\{\{[^}]+\}\})/g).map((part, i) => {
+                const m = part.match(/^\{\{([^}]+)\}\}$/)
+                if (m) {
+                  const field = template.fields.find(f => f.key === m[1])
+                  return (
+                    <span key={i} className="inline-block bg-brand-100 border border-brand-300 text-brand-700 rounded px-1 mx-0.5 font-medium">
+                      {field ? field.label : m[1]}
+                    </span>
+                  )
+                }
+                return <span key={i}>{part}</span>
+              })}
+            </div>
+            {/* 직접 편집 textarea */}
+            <textarea
+              ref={textareaRef}
+              className="input font-mono text-xs leading-relaxed resize-none"
+              rows={16}
+              value={template.processedText}
+              onChange={e => setTemplate({ ...template, processedText: e.target.value })}
+              placeholder="문서 텍스트를 직접 수정하세요. {{key}} 형태로 치환자를 삽입할 수 있습니다."
+              spellCheck={false}
+            />
+            <p className="text-xs text-gray-400 mt-1">직접 <code className="bg-gray-100 px-1 rounded">{'{{key}}'}</code> 형태로 입력하거나, 오른쪽 필드의 삽입 버튼을 사용하세요.</p>
           </div>
 
           {/* 오른쪽: 치환자 목록 */}
           <div>
-            <label className="label">감지된 치환자 {template.fields.length}개 — 레이블 수정 가능</label>
-            <div className="space-y-2 max-h-[440px] overflow-y-auto pr-1">
+            <div className="flex items-center justify-between mb-2">
+              <label className="label mb-0">치환자 목록 {template.fields.length}개</label>
+              <button
+                className="text-xs px-2 py-1 rounded-lg bg-brand-600 text-white hover:bg-brand-700 transition-colors"
+                onClick={() => setAddingField(v => !v)}
+              >
+                + 필드 추가
+              </button>
+            </div>
+
+            {/* 새 필드 추가 폼 */}
+            {addingField && (
+              <div className="card p-3 mb-3 bg-brand-50 border-brand-200 space-y-2">
+                <p className="text-xs font-semibold text-brand-700">새 치환자 추가</p>
+                <input
+                  className="input py-1 text-xs"
+                  placeholder="키 (영문 snake_case, 예: applicant_name)"
+                  value={newFieldKey}
+                  onChange={e => setNewFieldKey(e.target.value.replace(/\s+/g, '_').toLowerCase())}
+                />
+                <input
+                  className="input py-1 text-xs"
+                  placeholder="레이블 (한국어, 예: 신청인 성명)"
+                  value={newFieldLabel}
+                  onChange={e => setNewFieldLabel(e.target.value)}
+                />
+                <div className="flex gap-1.5">
+                  {(['text', 'date', 'select', 'textarea'] as const).map(t => (
+                    <button
+                      key={t}
+                      onClick={() => setNewFieldType(t)}
+                      className={`text-xs px-2 py-0.5 rounded border transition-colors ${newFieldType === t ? 'bg-brand-600 text-white border-brand-600' : 'border-gray-200 text-gray-500 hover:bg-gray-50'}`}
+                    >
+                      {t}
+                    </button>
+                  ))}
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    className="btn-primary text-xs py-1 flex-1 justify-center"
+                    onClick={addField}
+                    disabled={!newFieldKey || !newFieldLabel}
+                  >
+                    추가 + 커서 위치에 삽입
+                  </button>
+                  <button className="btn-secondary text-xs py-1" onClick={() => setAddingField(false)}>취소</button>
+                </div>
+              </div>
+            )}
+
+            <div className="space-y-2 max-h-[480px] overflow-y-auto pr-1">
               {template.fields.map((f, i) => (
-                <div key={f.key} className="card p-3 flex items-start gap-3">
-                  <span className="chip mt-0.5">{`{{${f.key}}}`}</span>
-                  <div className="flex-1 space-y-1.5">
+                <div key={f.key} className="card p-3 space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className="chip text-xs">{`{{${f.key}}}`}</span>
+                    <div className="flex gap-1">
+                      <button
+                        className="text-xs px-2 py-0.5 rounded border border-brand-200 text-brand-600 hover:bg-brand-50 transition-colors"
+                        onClick={() => insertPlaceholderAtCursor(f.key)}
+                        title="커서 위치에 삽입"
+                      >
+                        ↙ 삽입
+                      </button>
+                      <button
+                        className="text-xs px-2 py-0.5 rounded border border-red-200 text-red-500 hover:bg-red-50 transition-colors"
+                        onClick={() => deleteField(i)}
+                        title="필드 삭제"
+                      >
+                        삭제
+                      </button>
+                    </div>
+                  </div>
+                  <input
+                    className="input py-1 text-xs"
+                    value={f.label}
+                    onChange={e => updateField(i, { label: e.target.value })}
+                    placeholder="레이블"
+                  />
+                  <div className="flex gap-1.5 flex-wrap">
+                    {(['text', 'date', 'select', 'textarea'] as const).map(t => (
+                      <button
+                        key={t}
+                        onClick={() => updateField(i, { type: t })}
+                        className={`text-xs px-2 py-0.5 rounded border transition-colors ${f.type === t ? 'bg-brand-600 text-white border-brand-600' : 'border-gray-200 text-gray-500 hover:bg-gray-50'}`}
+                      >
+                        {t}
+                      </button>
+                    ))}
+                  </div>
+                  {f.type === 'select' && (
                     <input
                       className="input py-1 text-xs"
-                      value={f.label}
-                      onChange={e => updateField(i, { label: e.target.value })}
-                      placeholder="레이블"
+                      value={(f.options || []).join(', ')}
+                      onChange={e => updateField(i, { options: e.target.value.split(',').map(s => s.trim()) })}
+                      placeholder="선택지를 쉼표로 구분"
                     />
-                    <div className="flex gap-1.5 flex-wrap">
-                      {(['text', 'date', 'select', 'textarea'] as const).map(t => (
-                        <button
-                          key={t}
-                          onClick={() => updateField(i, { type: t })}
-                          className={`text-xs px-2 py-0.5 rounded border transition-colors ${f.type === t ? 'bg-brand-600 text-white border-brand-600' : 'border-gray-200 text-gray-500 hover:bg-gray-50'}`}
-                        >
-                          {t}
-                        </button>
-                      ))}
-                    </div>
-                    {f.type === 'select' && (
-                      <input
-                        className="input py-1 text-xs"
-                        value={(f.options || []).join(', ')}
-                        onChange={e => updateField(i, { options: e.target.value.split(',').map(s => s.trim()) })}
-                        placeholder="선택지를 쉼표로 구분"
-                      />
-                    )}
-                  </div>
+                  )}
                 </div>
               ))}
             </div>
+
             <div className="mt-4 flex gap-2">
               <button className="btn-primary flex-1 justify-center" onClick={handleSave} disabled={saving}>
                 {saving ? '저장 중...' : '✓ 확정 저장'}
               </button>
-              <button className="btn-secondary" onClick={() => { setStep('upload'); setTemplate(null) }}>
+              <button className="btn-secondary" onClick={() => { setStep('upload'); setTemplate(null); setReferenceImages([]) }}>
                 다시 업로드
               </button>
             </div>
@@ -252,7 +447,7 @@ export default function AdminPage() {
           <p className="text-gray-400 text-xs mb-6">치환자 {template.fields.length}개 생성 완료</p>
           <div className="flex gap-3 justify-center">
             <a href="/apply" className="btn-primary">신청서 작성 페이지 →</a>
-            <button className="btn-secondary" onClick={() => { setStep('upload'); setFile(null); setTitle(''); setTemplate(null) }}>
+            <button className="btn-secondary" onClick={() => { setStep('upload'); setFile(null); setTitle(''); setTemplate(null); setReferenceImages([]) }}>
               새 신청서 등록
             </button>
           </div>
