@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server'
 import { adminDb } from '@/lib/firebase-admin'
 
+export const dynamic = 'force-dynamic'
+
 export async function GET() {
   try {
     const snap = await adminDb
@@ -11,7 +13,9 @@ export async function GET() {
     const templates = snap.docs
       .map(d => ({ id: d.id, ...d.data() }))
       .sort((a: any, b: any) => (b.createdAt ?? 0) - (a.createdAt ?? 0))
-    return NextResponse.json(templates)
+    return NextResponse.json(templates, {
+      headers: { 'Cache-Control': 'no-store, max-age=0' },
+    })
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
     console.error('[templates] error:', msg)

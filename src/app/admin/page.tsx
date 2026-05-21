@@ -28,6 +28,7 @@ export default function AdminPage() {
   const [newFieldKey, setNewFieldKey]     = useState('')
   const [newFieldType, setNewFieldType]   = useState<PlaceholderField['type']>('text')
   const [addingField, setAddingField]     = useState(false)
+  const [listedTemplateCount, setListedTemplateCount] = useState<number | null>(null)
   const fileInputRef    = useRef<HTMLInputElement>(null)
   const imageInputRef   = useRef<HTMLInputElement>(null)
   const textareaRef     = useRef<HTMLTextAreaElement>(null)
@@ -108,6 +109,10 @@ export default function AdminPage() {
       })
       if (!res.ok) throw new Error('저장 실패')
       setStep('done')
+      fetch('/api/templates', { cache: 'no-store' })
+        .then(r => r.json())
+        .then(data => setListedTemplateCount(Array.isArray(data) ? data.length : null))
+        .catch(() => setListedTemplateCount(null))
     } catch {
       setError('저장 실패')
     }
@@ -444,7 +449,13 @@ export default function AdminPage() {
           <p className="text-gray-500 text-sm mb-1">
             <span className="font-medium text-gray-800">{template.title}</span>
           </p>
-          <p className="text-gray-400 text-xs mb-6">치환자 {template.fields.length}개 생성 완료</p>
+          <p className="text-gray-400 text-xs mb-2">치환자 {template.fields.length}개 생성 완료</p>
+          {listedTemplateCount !== null && (
+            <p className="text-xs text-brand-600 mb-6">
+              이 서버에 등록된 신청서 총 {listedTemplateCount}건 — 작성 페이지에서 같은 수가 보여야 합니다.
+            </p>
+          )}
+          {listedTemplateCount === null && <div className="mb-6" />}
           <div className="flex gap-3 justify-center">
             <a href="/apply" className="btn-primary">신청서 작성 페이지 →</a>
             <button className="btn-secondary" onClick={() => { setStep('upload'); setFile(null); setTitle(''); setTemplate(null); setReferenceImages([]) }}>

@@ -13,20 +13,37 @@ export default function ApplyPage() {
   const [showPreview, setShowPreview] = useState(true)
   const [activeKey, setActiveKey]     = useState<string | null>(null)
   const [error, setError]             = useState<string | null>(null)
+  const [listRefreshing, setListRefreshing] = useState(false)
   const previewRef = useRef<HTMLDivElement>(null)
 
+  async function loadTemplates() {
+    setListRefreshing(true)
+    setError(null)
+    try {
+      const res = await fetch('/api/templates', { cache: 'no-store' })
+      const data = await res.json()
+      if (!res.ok) {
+        setError(data?.error || `목록 로드 실패 (${res.status})`)
+        setTemplates([])
+        return
+      }
+      if (Array.isArray(data)) {
+        setTemplates(data)
+      } else {
+        setError(data?.error || '목록 로드 실패')
+        setTemplates([])
+      }
+    } catch {
+      setError('목록 로드 실패 — 네트워크 또는 서버 오류')
+      setTemplates([])
+    } finally {
+      setLoading(false)
+      setListRefreshing(false)
+    }
+  }
+
   useEffect(() => {
-    fetch('/api/templates')
-      .then(r => r.json())
-      .then(data => {
-        if (Array.isArray(data)) {
-          setTemplates(data)
-        } else {
-          setError(data?.error || '목록 로드 실패')
-        }
-        setLoading(false)
-      })
-      .catch(() => { setError('목록 로드 실패'); setLoading(false) })
+    loadTemplates()
   }, [])
 
   function selectTemplate(t: FormTemplate) {
@@ -156,9 +173,26 @@ export default function ApplyPage() {
 
   return (
     <div>
-      <div className="mb-8">
-        <h1 className="text-2xl font-bold mb-1">신청서 작성</h1>
-        <p className="text-gray-500 text-sm">신청서를 선택하고 내용을 입력한 후 hwpx 파일로 다운로드하세요.</p>
+      <div className="mb-8 flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold mb-1">신청서 작성</h1>
+          <p className="text-gray-500 text-sm">
+            관리자에서 <strong>확정 저장</strong>까지 완료한 신청서가 여기 목록에 표시됩니다.
+            {!selected && templates.length > 0 && (
+              <span className="text-brand-600"> ({templates.length}건)</span>
+            )}
+          </p>
+        </div>
+        {!selected && (
+          <button
+            type="button"
+            className="btn-secondary text-sm"
+            onClick={() => loadTemplates()}
+            disabled={listRefreshing}
+          >
+            {listRefreshing ? '불러오는 중…' : '목록 새로고침'}
+          </button>
+        )}
       </div>
 
       {error && (
@@ -170,8 +204,17 @@ export default function ApplyPage() {
           {templates.length === 0 ? (
             <div className="card p-12 text-center text-gray-400">
               <div className="text-3xl mb-3">📭</div>
-              <p className="text-sm">등록된 신청서가 없습니다.</p>
-              <a href="/admin" className="btn-secondary mt-4 inline-flex">관리자에서 등록하기</a>
+              <p className="text-sm mb-2">등록된 신청서가 없습니다.</p>
+              <p className="text-xs text-gray-400 max-w-md mx-auto mb-4">
+                관리자 등록은 <strong>배포 URL</strong>의 /admin 에서 하셨는지 확인하세요.
+                로컬(localhost)에서만 등록하면 이 배포 페이지에는 보이지 않습니다.
+              </p>
+              <div className="flex flex-wrap gap-2 justify-center">
+                <button type="button" className="btn-secondary" onClick={() => loadTemplates()}>
+                  다시 불러오기
+                </button>
+                <a href="/admin" className="btn-primary inline-flex">관리자에서 등록하기</a>
+              </div>
             </div>
           ) : (
             <div className="grid grid-cols-2 gap-4">
