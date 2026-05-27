@@ -256,20 +256,20 @@ function processTableCells(
     const t = c.text.trim()
     const dateSection = isDateOnlyTable(cells) ? '기본' : section
     if (/^\d{0,4}\s*년\s*$/.test(t) || t === '년' || /^년$/.test(norm(t))) {
-      const base = splitDateBase || uniqueKey(`${dateSection}_${lastLabel ? labelToKeyPart(lastLabel) : '작성일'}`, usedKeys)
+      const base: string = splitDateBase ?? uniqueKey(`${dateSection}_${lastLabel ? labelToKeyPart(lastLabel) : '작성일'}`, usedKeys)
       splitDateBase = base
       const inner = setCellPlaceholderText(c.inner, `${ph(`${base}#part#년#1`)}년`)
       cells[i] = { ...c, inner, text: getCellText(inner).text }
       continue
     }
     if (t === '월' || /^\s*월\s*$/.test(t)) {
-      const base = splitDateBase || uniqueKey(`${dateSection}_작성일`, usedKeys)
+      const base: string = splitDateBase ?? uniqueKey(`${dateSection}_작성일`, usedKeys)
       const inner = setCellPlaceholderText(c.inner, `${ph(`${base}#part#월#2`)} 월`)
       cells[i] = { ...c, inner, text: getCellText(inner).text }
       continue
     }
     if (t === '일' || /^\s*일\s*$/.test(t)) {
-      const base = splitDateBase || uniqueKey(`${dateSection}_작성일`, usedKeys)
+      const base: string = splitDateBase ?? uniqueKey(`${dateSection}_작성일`, usedKeys)
       const inner = setCellPlaceholderText(c.inner, `${ph(`${base}#part#일#3`)} 일`)
       cells[i] = { ...c, inner, text: getCellText(inner).text }
       splitDateBase = null

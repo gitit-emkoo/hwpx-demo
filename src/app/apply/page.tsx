@@ -65,7 +65,7 @@ export default function ApplyPage() {
   function toggleCheckbox(key: string, option: string, checked: boolean) {
     setValues(prev => {
       const cur = (prev[key] || '').split(/[,，]/).map(s => s.trim()).filter(Boolean)
-      const next = checked ? [...new Set([...cur, option])] : cur.filter(o => o !== option)
+      const next = checked ? Array.from(new Set([...cur, option])) : cur.filter(o => o !== option)
       return { ...prev, [key]: next.join(', ') }
     })
   }

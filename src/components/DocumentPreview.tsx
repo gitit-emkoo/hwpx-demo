@@ -87,9 +87,10 @@ function displayForPlaceholder(
     return `${on ? '☑' : '☐'} ${p.option}`
   }
   if (p.type === 'checkbox' && p.option) {
+    const opt = p.option
     const selected = (raw || '').split(/[,，]/).map(s => s.trim()).filter(Boolean)
-    const on = selected.some(s => s === p.option || s.includes(p.option))
-    return `${on ? '☑' : '☐'} ${p.option}`
+    const on = selected.some(s => s === opt || s.includes(opt))
+    return `${on ? '☑' : '☐'} ${opt}`
   }
   if (p.type === 'part') {
     if (raw) {
