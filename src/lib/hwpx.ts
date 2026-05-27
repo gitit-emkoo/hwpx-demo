@@ -1,6 +1,7 @@
 import JSZip from 'jszip'
 import Anthropic from '@anthropic-ai/sdk'
 import type { PlaceholderField } from '@/lib/types'
+import { resolvePdfPlaceholder } from '@/lib/pdf-rules-embed'
 
 /**
  * hwpx 파일(Buffer)에서 텍스트 추출 (미리보기용)
@@ -376,12 +377,20 @@ export async function embedPlaceholdersByLabel(
             })
           }
 
-          let labelIdx = cells.findIndex(c => norm(c.text) === normLabel)
+          // 레이블 셀만: 텍스트가 레이블과 동일(공백 무시), 이미 {{ 있으면 제외
+          let labelIdx = cells.findIndex(
+            c =>
+              !c.text.includes('{{') &&
+              norm(c.text) === normLabel &&
+              c.text.length <= label.length + 6
+          )
           if (labelIdx === -1) {
-            labelIdx = cells.findIndex(c =>
-              normLabel.length >= 2 &&
-              norm(c.text).includes(normLabel) &&
-              norm(c.text).length <= normLabel.length + 28
+            labelIdx = cells.findIndex(
+              c =>
+                !c.text.includes('{{') &&
+                normLabel.length >= 3 &&
+                norm(c.text).startsWith(normLabel) &&
+                norm(c.text).length <= normLabel.length + 12
             )
           }
           if (labelIdx === -1) continue
@@ -401,14 +410,18 @@ export async function embedPlaceholdersByLabel(
               cellXml.slice(insertAt)
           }
 
-          for (let i = labelIdx + 1; i < Math.min(labelIdx + 10, cells.length); i++) {
+          // 2열 양식: 값 칸은 레이블 바로 옆 한 칸만
+          for (let i = labelIdx + 1; i < labelIdx + 2 && i < cells.length; i++) {
             const targetCell = cells[i]
             const cellXml = xmlStr.slice(targetCell.start, targetCell.end)
             if (cellXml.includes('{{')) continue
             let newCellXml: string | null = null
             if (shouldReplaceValueCell(targetCell.rawJoined, targetCell.text, label)) {
               newCellXml = replaceFirstHpTInCell(cellXml, placeholder)
-            } else if (targetCell.text.length <= MAX_APPEND_CELL_TEXT_LEN) {
+            } else if (
+              targetCell.text.length <= MAX_APPEND_CELL_TEXT_LEN &&
+              norm(targetCell.text) !== normLabel
+            ) {
               newCellXml =
                 appendPlaceholderToLastHpTInCell(cellXml, placeholder) ??
                 replaceFirstHpTInCell(cellXml, placeholder)
@@ -419,18 +432,16 @@ export async function embedPlaceholdersByLabel(
             break
           }
 
+          // 옵션 한 줄(레이블=값)만 같은 셀에 삽입. 짧은 레이블 칸(기업명 등)에는 붙이지 않음
           if (!embeddedRound) {
             const lc = cells[labelIdx]
             const lxml = xmlStr.slice(lc.start, lc.end)
-            if (!lxml.includes('{{') && norm(lc.text) === normLabel) {
-              let newCellXml: string | null = null
-              if (shouldReplaceValueCell(lc.rawJoined, lc.text, label)) {
-                newCellXml = replaceFirstHpTInCell(lxml, placeholder)
-              } else if (lc.text.length <= MAX_APPEND_CELL_TEXT_LEN) {
-                newCellXml =
-                  appendPlaceholderToLastHpTInCell(lxml, placeholder) ??
-                  replaceFirstHpTInCell(lxml, placeholder)
-              }
+            const sameCellOption =
+              !lxml.includes('{{') &&
+              norm(lc.text) === normLabel &&
+              lc.text.length >= 8
+            if (sameCellOption) {
+              const newCellXml = replaceFirstHpTInCell(lxml, placeholder)
               if (newCellXml) {
                 xmlStr = xmlStr.slice(0, lc.start) + newCellXml + xmlStr.slice(lc.end)
                 embeddedRound = true
@@ -513,10 +524,10 @@ ${originalTextSnippet.slice(0, 4500)}
 - 기관명·사업명·유의사항 본문 등 **고정 텍스트는 필드에서 제외**
 
 규칙:
-- key는 반드시 "${prefix}_" 로 시작. 한글 위주 (예: ${prefix}_업체명, ${prefix}_대표자성명)
-- 공백은 언더스코어 대신 그대로 두거나 띄어쓰기 — hwpx 텍스트와 맞출 것
-- **같은 정보가 여러 페이지에 반복되면 동일한 key 재사용** (예: 상단·하단 모두 ${prefix}_업체명)
-- label은 hwpx 텍스트의 항목명과 최대한 동일 (예: 문서에 "업 체 명"이면 label도 그렇게)
+- key는 "섹션_필드" 형태 (예: 기업개요_기업명, 장비활용계획_장비명). prefix "${prefix}" 는 섹션명 fallback.
+- type: text | date | select | checkbox | textarea
+- checkbox/select는 options 배열에 선택지 문자열 (hwpx □ 옵션과 동일하게)
+- label은 hwpx 항목명과 동일하게
 
 extract_reference_fields 툴로만 응답하세요.`,
   }]
@@ -608,25 +619,19 @@ export async function referenceImagesFromFormFiles(files: File[]): Promise<Refer
 // 다운로드 시: {{key}} → 값 replace
 // ─────────────────────────────────────────────
 
-/** select 필드: hwpx에는 텍스트 체크 표시만 삽입 */
-const SELECT_OUTPUT_IN_HWPX = '\u2713' // ✓
-
 function escapeXmlText(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 }
 
 /**
- * Storage hwpx XML에 심어둔 {{key}}를 values로 직접 replace
- * fields가 있으면 type === 'select' 이고 값이 비어 있지 않을 때는 옵션 문자열 대신 ✓ 만 넣음
+ * Storage hwpx XML에 심어둔 {{key}} / {{key#select#…}} / {{key#checkbox#…}} / {{key#part#…}} 치환
+ * PDF 규칙(치환자규칙설명.pdf): checkbox·select → ☑/☐+라벨, part → 날짜 분할, 그 외 텍스트
  */
 export async function applyPlaceholdersToHwpx(
   hwpxBuffer: Buffer,
   values: Record<string, string>,
-  fields?: PlaceholderField[]
+  _fields?: PlaceholderField[]
 ): Promise<Buffer> {
-  const typeByKey = new Map<string, PlaceholderField['type']>()
-  if (fields) for (const f of fields) typeByKey.set(f.key, f.type)
-
   const zip = await JSZip.loadAsync(hwpxBuffer)
   const sectionFiles = getSectionFiles(zip)
 
@@ -635,12 +640,15 @@ export async function applyPlaceholdersToHwpx(
     if (!file) continue
     let xmlStr = await file.async('string')
 
-    for (const [key, val] of Object.entries(values)) {
-      const placeholder = `{{${key}}}`
-      let raw = val || ''
-      if (typeByKey.get(key) === 'select' && raw.trim()) raw = SELECT_OUTPUT_IN_HWPX
-      const safeVal = escapeXmlText(raw)
-      xmlStr = xmlStr.split(placeholder).join(safeVal)
+    const phRe = /\{\{([^}]+)\}\}/g
+    const inners = new Set<string>()
+    let m: RegExpExecArray | null
+    while ((m = phRe.exec(xmlStr)) !== null) inners.add(m[1])
+
+    for (const inner of Array.from(inners)) {
+      const token = `{{${inner}}}`
+      const out = resolvePdfPlaceholder(inner, values, escapeXmlText)
+      xmlStr = xmlStr.split(token).join(out)
     }
 
     zip.file(fileName, xmlStr)

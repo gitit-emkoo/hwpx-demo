@@ -13,5 +13,7 @@ if (!getApps().length) {
   })
 }
 
-export const adminDb      = getFirestore()
+export const adminDb = getFirestore()
+adminDb.settings({ ignoreUndefinedProperties: true })
+
 export const adminStorage = getStorage()

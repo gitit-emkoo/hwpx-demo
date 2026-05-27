@@ -2,6 +2,9 @@
 
 import { useState, useEffect, useRef } from 'react'
 import type { FormTemplate, PlaceholderField } from '@/lib/types'
+import { fieldsFromProcessedText } from '@/lib/placeholder-fields'
+import DocumentPreview from '@/components/DocumentPreview'
+import HtmlDocumentPreview from '@/components/HtmlDocumentPreview'
 
 export default function ApplyPage() {
   const [templates, setTemplates]     = useState<FormTemplate[]>([])
@@ -47,7 +50,10 @@ export default function ApplyPage() {
   }, [])
 
   function selectTemplate(t: FormTemplate) {
-    setSelected(t)
+    setSelected({
+      ...t,
+      fields: fieldsFromProcessedText(t.processedText, t.fields),
+    })
     setValues({})
     setActiveKey(null)
   }
@@ -56,53 +62,18 @@ export default function ApplyPage() {
     setValues(prev => ({ ...prev, [key]: val }))
   }
 
-  // 미리보기: processedText를 파싱해 치환자 위치에 하이라이트/값 표시
-  function renderPreview(template: FormTemplate, vals: Record<string, string>, active: string | null) {
-    const text = template.processedText
-    const parts: React.ReactNode[] = []
-    const regex = /\{\{([^}]+)\}\}/g
-    let last = 0
-    let match: RegExpExecArray | null
-
-    while ((match = regex.exec(text)) !== null) {
-      // 치환자 앞 일반 텍스트
-      if (match.index > last) {
-        parts.push(
-          <span key={last}>{text.slice(last, match.index)}</span>
-        )
-      }
-      const key = match[1]
-      const field = template.fields.find(f => f.key === key)
-      const val = vals[key]
-      const isActive = active === key
-
-      parts.push(
-        <span
-          key={match.index}
-          className={`inline-block rounded px-1 mx-0.5 text-sm font-medium border transition-all cursor-pointer ${
-            val
-              ? 'bg-green-50 border-green-300 text-green-800'
-              : isActive
-              ? 'bg-brand-100 border-brand-400 text-brand-800 ring-2 ring-brand-300'
-              : 'bg-yellow-50 border-yellow-300 text-yellow-700'
-          }`}
-          title={field?.label || key}
-        >
-          {val || `${field?.label || key}`}
-        </span>
-      )
-      last = match.index + match[0].length
-    }
-    if (last < text.length) {
-      parts.push(<span key={last}>{text.slice(last)}</span>)
-    }
-    return parts
+  function toggleCheckbox(key: string, option: string, checked: boolean) {
+    setValues(prev => {
+      const cur = (prev[key] || '').split(/[,，]/).map(s => s.trim()).filter(Boolean)
+      const next = checked ? [...new Set([...cur, option])] : cur.filter(o => o !== option)
+      return { ...prev, [key]: next.join(', ') }
+    })
   }
 
   // 활성 필드로 미리보기 스크롤
   useEffect(() => {
     if (!activeKey || !previewRef.current) return
-    const el = previewRef.current.querySelector(`[title]`)
+    const el = previewRef.current.querySelector(`[data-field-key="${activeKey}"]`)
     el?.scrollIntoView({ behavior: 'smooth', block: 'center' })
   }, [activeKey])
 
@@ -142,7 +113,7 @@ export default function ApplyPage() {
       const res = await fetch('/api/download', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ templateId: selected.id, values: {} }),
+        body: JSON.stringify({ templateId: selected.id, values: {}, mode: 'template' }),
       })
       if (!res.ok) {
         const d = await res.json()
@@ -312,6 +283,24 @@ export default function ApplyPage() {
                       <option value="">선택하세요</option>
                       {(f.options || []).map(o => <option key={o} value={o}>{o}</option>)}
                     </select>
+                  ) : f.type === 'checkbox' && (f.options?.length ?? 0) > 0 ? (
+                    <div className="space-y-2">
+                      {f.options!.map(opt => {
+                        const selected = (values[f.key] || '').split(/[,，]/).map(s => s.trim()).includes(opt)
+                        return (
+                          <label key={opt} className="flex items-center gap-2 text-sm cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={selected}
+                              onChange={e => toggleCheckbox(f.key, opt, e.target.checked)}
+                              onFocus={() => setActiveKey(f.key)}
+                              onBlur={() => setActiveKey(null)}
+                            />
+                            <span>{opt}</span>
+                          </label>
+                        )
+                      })}
+                    </div>
                   ) : (
                     <input
                       className="input"
@@ -340,10 +329,25 @@ export default function ApplyPage() {
                 </div>
                 <div
                   ref={previewRef}
-                  className="card p-5 text-sm leading-8 whitespace-pre-wrap overflow-y-auto text-gray-700 bg-white"
-                  style={{ fontFamily: "'Malgun Gothic', '맑은 고딕', sans-serif", maxHeight: 'calc(100vh - 200px)' }}
+                  className="overflow-y-auto rounded-xl border border-gray-200"
+                  style={{ maxHeight: 'calc(100vh - 200px)' }}
                 >
-                  {renderPreview(selected, values, activeKey)}
+                  {selected.previewHtml ? (
+                    <HtmlDocumentPreview
+                      html={selected.previewHtml}
+                      template={selected}
+                      values={values}
+                      activeKey={activeKey}
+                      onFieldClick={setActiveKey}
+                    />
+                  ) : (
+                    <DocumentPreview
+                      template={selected}
+                      values={values}
+                      activeKey={activeKey}
+                      onFieldClick={setActiveKey}
+                    />
+                  )}
                 </div>
               </div>
             )}

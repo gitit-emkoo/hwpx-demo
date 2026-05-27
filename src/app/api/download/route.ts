@@ -5,9 +5,11 @@ import type { FormTemplate } from '@/lib/types'
 
 export async function POST(req: NextRequest) {
   try {
-    const { templateId, values } = await req.json() as {
+    const { templateId, values, mode } = await req.json() as {
       templateId: string
       values: Record<string, string>
+      /** 'template' = Storage hwpx 그대로 ({{치환자}} 유지), 'filled' = 값으로 치환 */
+      mode?: 'template' | 'filled'
     }
 
     // 템플릿 조회
@@ -20,20 +22,24 @@ export async function POST(req: NextRequest) {
     const fileRef = bucket.file(template.hwpxStoragePath)
     const [hwpxBuffer] = await fileRef.download()
 
-    // Storage hwpx에 이미 {{key}}가 심어져 있음 → 직접 replace
-    const result = await applyPlaceholdersToHwpx(hwpxBuffer, values, template.fields)
+    const keepPlaceholders = mode === 'template'
+    const result = keepPlaceholders
+      ? hwpxBuffer
+      : await applyPlaceholdersToHwpx(hwpxBuffer, values, template.fields)
 
-    // 제출 기록 저장
-    await adminDb.collection('submissions').add({
-      templateId,
-      values,
-      createdAt: Date.now(),
-    })
+    if (!keepPlaceholders) {
+      await adminDb.collection('submissions').add({
+        templateId,
+        values,
+        createdAt: Date.now(),
+      })
+    }
 
+    const suffix = keepPlaceholders ? '_양식_치환자포함' : '_작성완료'
     return new NextResponse(new Uint8Array(result), {
       headers: {
         'Content-Type':        'application/octet-stream',
-        'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(template.title + '_작성완료.hwpx')}`,
+        'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(template.title + suffix + '.hwpx')}`,
       }
     })
 

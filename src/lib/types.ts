@@ -1,4 +1,4 @@
-export type FieldType = 'text' | 'date' | 'select' | 'textarea'
+export type FieldType = 'text' | 'date' | 'select' | 'checkbox' | 'textarea'
 
 export interface PlaceholderField {
   key:      string       // e.g. "applicant_name"
@@ -15,6 +15,8 @@ export interface FormTemplate {
   processedText: string   // {{치환자}} 삽입된 텍스트
   fields:        PlaceholderField[]
   hwpxStoragePath: string // Firebase Storage 경로
+  /** Claude가 참조 이미지·hwpx 구조로 생성한 HTML 미리보기 (없으면 휴리스틱 fallback) */
+  previewHtml?:   string
   createdAt:     number
 }
 

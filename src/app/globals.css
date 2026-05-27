@@ -35,4 +35,166 @@
   .step-dot {
     @apply w-7 h-7 rounded-full flex items-center justify-center text-xs font-semibold flex-shrink-0 transition-all;
   }
+
+  /* 신청서 문서형 미리보기 */
+  .doc-preview-shell {
+    @apply rounded-xl overflow-hidden;
+    background: linear-gradient(180deg, #d8dce3 0%, #e8eaed 100%);
+    padding: 1.25rem;
+  }
+  .doc-preview-page {
+    background: #fff;
+    width: 100%;
+    max-width: 52rem;
+    margin: 0 auto;
+    min-height: 36rem;
+    padding: 2.5rem 2.25rem 3rem;
+    box-shadow:
+      0 1px 2px rgba(0, 0, 0, 0.06),
+      0 8px 24px rgba(0, 0, 0, 0.1);
+    font-family: 'Malgun Gothic', '맑은 고딕', 'Apple SD Gothic Neo', sans-serif;
+    font-size: 10.5pt;
+    line-height: 1.65;
+    color: #1a1a1a;
+  }
+  .doc-title {
+    text-align: center;
+    font-size: 15pt;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    margin: 0 0 1.25rem;
+    padding-bottom: 0.75rem;
+    border-bottom: 2px solid #222;
+  }
+  .doc-section {
+    font-size: 11pt;
+    font-weight: 700;
+    margin: 1.1rem 0 0.4rem;
+    padding: 0.35rem 0.5rem;
+    background: #f3f4f6;
+    border-left: 3px solid #374151;
+  }
+  .doc-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 0 0 0.15rem;
+    table-layout: fixed;
+  }
+  .doc-table-label {
+    width: 26%;
+    border: 1px solid #4b5563;
+    background: #f9fafb;
+    font-weight: 600;
+    text-align: center;
+    vertical-align: middle;
+    padding: 0.45rem 0.5rem;
+    font-size: 10pt;
+  }
+  .doc-table-value {
+    border: 1px solid #4b5563;
+    padding: 0.45rem 0.65rem;
+    vertical-align: middle;
+    word-break: break-word;
+  }
+  .doc-paragraph {
+    margin: 0.35rem 0;
+    padding: 0.15rem 0;
+    line-height: 1.75;
+  }
+  .doc-field {
+    display: inline;
+    cursor: pointer;
+    border-radius: 2px;
+    transition: background 0.12s, box-shadow 0.12s;
+  }
+  .doc-field--empty {
+    color: #9a3412;
+    background: #fffbeb;
+    border-bottom: 1px dashed #d97706;
+    padding: 0 2px;
+  }
+  .doc-field--filled {
+    color: #14532d;
+    background: #f0fdf4;
+    border-bottom: 1px solid #16a34a;
+    padding: 0 2px;
+    font-weight: 500;
+  }
+  .doc-field--active {
+    outline: 2px solid #2563eb;
+    outline-offset: 1px;
+    background: #eff6ff !important;
+    color: #1e40af !important;
+  }
+  /* Claude 생성 HTML 미리보기 */
+  .ai-preview-html .form-doc {
+    font-family: 'Malgun Gothic', '맑은 고딕', sans-serif;
+    font-size: 10.5pt;
+    color: #1a1a1a;
+  }
+  .ai-preview-html .form-title {
+    text-align: center;
+    font-size: 15pt;
+    font-weight: 700;
+    margin: 0 0 1rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 2px solid #222;
+  }
+  .ai-preview-html .form-section {
+    font-weight: 700;
+    margin: 1rem 0 0.35rem;
+    padding: 0.25rem 0.5rem;
+    background: #f3f4f6;
+    border-left: 3px solid #374151;
+  }
+  .ai-preview-html .form-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 0.25rem 0 0.5rem;
+    table-layout: fixed;
+  }
+  .ai-preview-html .form-table td,
+  .ai-preview-html .form-table th {
+    border: 1px solid #4b5563;
+    padding: 0.4rem 0.55rem;
+    vertical-align: middle;
+    word-break: break-word;
+  }
+  .ai-preview-html .form-label,
+  .ai-preview-html td.form-label,
+  .ai-preview-html th.form-label {
+    background: #f9fafb;
+    font-weight: 600;
+    text-align: center;
+    width: 24%;
+  }
+  .ai-preview-html .form-value {
+    min-height: 1.4em;
+  }
+  .ai-preview-html .form-plan-area {
+    min-height: 10rem;
+    vertical-align: top;
+    padding: 0.6rem;
+  }
+  .ai-preview-html .form-checkboxes {
+    line-height: 1.6;
+  }
+  .ai-preview-html .form-checkboxes .doc-field {
+    display: inline-block;
+    margin-right: 0.75rem;
+    margin-bottom: 0.25rem;
+  }
+
+  .doc-field--embed {
+    display: inline-block;
+    font-size: 9.5pt;
+    font-weight: 600;
+    color: #1e3a8a;
+    background: #dbeafe;
+    border: 1px solid #3b82f6;
+    border-radius: 3px;
+    padding: 0 4px;
+    margin: 0 1px;
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.5);
+  }
 }

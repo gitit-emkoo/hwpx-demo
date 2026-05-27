@@ -2,15 +2,18 @@
 
 import { useState, useRef, useEffect } from 'react'
 import type { FormTemplate, PlaceholderField } from '@/lib/types'
+import { fieldsFromProcessedText } from '@/lib/placeholder-fields'
+import DocumentPreview from '@/components/DocumentPreview'
+import HtmlDocumentPreview from '@/components/HtmlDocumentPreview'
 
 type Step = 'upload' | 'analyzing' | 'review' | 'done'
 
 const ANALYZING_MESSAGES = [
   'hwpx 파일에서 텍스트를 추출하고 있습니다...',
-  '참조 이미지가 있으면 Claude가 화면으로 입력 칸을 구분합니다...',
-  'Claude AI가 문서 구조를 파악하고 있습니다...',
-  '빈칸과 입력 필드를 감지하고 있습니다...',
-  '치환자 키를 생성하고 있습니다...',
+  '표 구조에서 입력 칸을 찾고 있습니다...',
+  'PDF 치환자 규칙(텍스트·체크·날짜)으로 {{키}}를 심고 있습니다...',
+  '참조 이미지·표 구조를 보고 HTML 미리보기를 만듭니다...',
+  '참조 이미지가 있으면 항목 레이블을 보정합니다...',
   '거의 다 됐습니다...',
 ]
 
@@ -32,8 +35,18 @@ export default function AdminPage() {
   const fileInputRef    = useRef<HTMLInputElement>(null)
   const imageInputRef   = useRef<HTMLInputElement>(null)
   const textareaRef     = useRef<HTMLTextAreaElement>(null)
+  const previewRef      = useRef<HTMLDivElement>(null)
+  const [activeFieldKey, setActiveFieldKey] = useState<string | null>(null)
+  const [showTextEditor, setShowTextEditor]   = useState(false)
   const timerRef        = useRef<ReturnType<typeof setInterval> | null>(null)
   const msgTimerRef     = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  useEffect(() => {
+    if (!activeFieldKey || !previewRef.current) return
+    previewRef.current
+      .querySelector(`[data-field-key="${activeFieldKey}"]`)
+      ?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }, [activeFieldKey])
 
   useEffect(() => {
     if (step === 'analyzing') {
@@ -77,7 +90,11 @@ export default function AdminPage() {
       const res  = await fetch('/api/upload', { method: 'POST', body: fd })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || '업로드 실패')
-      setTemplate(data)
+      setTemplate({
+        ...data,
+        fields: fieldsFromProcessedText(data.processedText, data.fields),
+      })
+      setActiveFieldKey(null)
       setStep('review')
     } catch (err) {
       setError(err instanceof Error ? err.message : '오류 발생')
@@ -88,18 +105,8 @@ export default function AdminPage() {
 
   async function handleSave() {
     if (!template) return
-    // processedText에 실제로 사용된 key만 fields에 남기기
-    const usedKeys = new Set<string>()
-    const regex = /\{\{([^}]+)\}\}/g
-    let m: RegExpExecArray | null
-    while ((m = regex.exec(template.processedText)) !== null) usedKeys.add(m[1])
-    const syncedFields = template.fields.filter(f => usedKeys.has(f.key))
-    // processedText에 있지만 fields에 없는 key는 자동으로 text 타입으로 추가
-    usedKeys.forEach(key => {
-      if (!syncedFields.find(f => f.key === key)) {
-        syncedFields.push({ key, label: key, type: 'text', required: false })
-      }
-    })
+    // {{기업개요_형태#select#법인}} … → baseKey 하나( select/checkbox 옵션 묶음)
+    const syncedFields = fieldsFromProcessedText(template.processedText, template.fields)
     setSaving(true)
     try {
       const res = await fetch(`/api/templates/${template.id}`, {
@@ -144,18 +151,26 @@ export default function AdminPage() {
 
   // 커서 위치에 {{key}} 삽입
   function insertPlaceholderAtCursor(key: string) {
-    if (!template || !textareaRef.current) return
-    const ta = textareaRef.current
-    const start = ta.selectionStart
-    const end   = ta.selectionEnd
-    const text  = template.processedText
-    const newText = text.slice(0, start) + `{{${key}}}` + text.slice(end)
-    setTemplate({ ...template, processedText: newText })
-    // 커서를 삽입 후 위치로
+    if (!template) return
+    setActiveFieldKey(key)
+    if (!showTextEditor) setShowTextEditor(true)
     setTimeout(() => {
-      ta.selectionStart = ta.selectionEnd = start + key.length + 4
-      ta.focus()
-    }, 0)
+      const ta = textareaRef.current
+      if (!ta) return
+      const start = ta.selectionStart
+      const end   = ta.selectionEnd
+      const text  = template.processedText
+      const newText = text.slice(0, start) + `{{${key}}}` + text.slice(end)
+      setTemplate({
+        ...template,
+        processedText: newText,
+        fields: fieldsFromProcessedText(newText, template.fields),
+      })
+      setTimeout(() => {
+        ta.selectionStart = ta.selectionEnd = start + key.length + 4
+        ta.focus()
+      }, 0)
+    }, 50)
   }
 
   function addField() {
@@ -212,9 +227,9 @@ export default function AdminPage() {
             <input className="input" value={title} onChange={e => setTitle(e.target.value)} placeholder="예) 2026년 장학금 신청서" />
           </div>
           <div className="mb-4">
-            <label className="label">참조 이미지 (선택, 여러 장 가능)</label>
+            <label className="label">참조 이미지 (미리보기 정확도에 권장)</label>
             <p className="text-xs text-gray-500 mb-2">
-              신청서에서 입력해야 할 페이지만 PNG/JPEG로 저장해 순서대로 선택하세요. hwpx 1개에 이미지 여러 장을 매칭합니다.
+              한글 화면을 PNG/JPEG로 캡처해 순서대로 올리면 AI가 표·칸 배치에 맞춘 HTML 미리보기를 만듭니다. 항목 레이블 보정에도 사용됩니다.
             </p>
             <div
               className="border border-dashed border-gray-300 rounded-xl p-4 text-center cursor-pointer hover:border-brand-400 hover:bg-brand-50 transition-colors"
@@ -258,7 +273,7 @@ export default function AdminPage() {
             </div>
           </div>
           <button className="btn-primary w-full justify-center" disabled={!file || !title} onClick={handleUpload}>
-            Claude AI로 분석 시작
+            업로드 · 치환자 자동 삽입
           </button>
         </div>
       )}
@@ -269,7 +284,7 @@ export default function AdminPage() {
           <div className="inline-block w-10 h-10 border-4 border-brand-200 border-t-brand-600 rounded-full animate-spin mb-6" />
 
           {/* 진행 메시지 */}
-          <p className="font-semibold mb-2">Claude AI가 신청서를 분석 중입니다...</p>
+          <p className="font-semibold mb-2">신청서를 분석하고 치환자를 심는 중입니다...</p>
           <p className="text-sm text-brand-600 mb-6 min-h-[20px] transition-all">{ANALYZING_MESSAGES[msgIdx]}</p>
 
           {/* 진행 바 */}
@@ -290,44 +305,80 @@ export default function AdminPage() {
 
       {/* STEP: 검토·수정 */}
       {step === 'review' && template && (
-        <div className="grid grid-cols-2 gap-6 items-start">
+        <div className="grid grid-cols-1 lg:grid-cols-5 gap-6 items-start">
 
-          {/* 왼쪽: processedText 직접 편집 */}
-          <div className="sticky top-[72px]">
-            <div className="flex items-center justify-between mb-2">
-              <label className="label mb-0">문서 편집</label>
-              <span className="text-xs text-gray-400">치환자 위치에 커서를 놓고 오른쪽에서 필드 삽입</span>
+          {/* 왼쪽: 치환자 심긴 문서 미리보기 */}
+          <div className="lg:col-span-3 sticky top-[72px]">
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+              <label className="label mb-0">치환자 삽입 미리보기</label>
+              <div className="flex gap-3 text-xs text-gray-500">
+                <span className="flex items-center gap-1">
+                  <span className="inline-block w-3 h-3 rounded border border-blue-500 bg-blue-100" />
+                  심어진 치환자
+                </span>
+                <span>
+                  {template.previewHtml
+                    ? 'AI 생성 HTML (참조 이미지·hwpx 표 구조 반영)'
+                    : '간이 HTML (재업로드 시 참조 PNG 권장)'}
+                </span>
+              </div>
             </div>
-            {/* 하이라이트 미리보기 */}
-            <div className="card p-3 text-xs leading-7 whitespace-pre-wrap max-h-[220px] overflow-y-auto text-gray-700 bg-gray-50 mb-2">
-              {template.processedText.split(/(\{\{[^}]+\}\})/g).map((part, i) => {
-                const m = part.match(/^\{\{([^}]+)\}\}$/)
-                if (m) {
-                  const field = template.fields.find(f => f.key === m[1])
-                  return (
-                    <span key={i} className="inline-block bg-brand-100 border border-brand-300 text-brand-700 rounded px-1 mx-0.5 font-medium">
-                      {field ? field.label : m[1]}
-                    </span>
-                  )
-                }
-                return <span key={i}>{part}</span>
-              })}
+            <div
+              ref={previewRef}
+              className="overflow-y-auto rounded-xl border border-gray-200 mb-3"
+              style={{ maxHeight: 'calc(100vh - 220px)' }}
+            >
+              {template.previewHtml ? (
+                <HtmlDocumentPreview
+                  html={template.previewHtml}
+                  template={template}
+                  variant="embed"
+                  activeKey={activeFieldKey}
+                  onFieldClick={setActiveFieldKey}
+                />
+              ) : (
+                <DocumentPreview
+                  template={template}
+                  values={{}}
+                  variant="embed"
+                  activeKey={activeFieldKey}
+                  onFieldClick={setActiveFieldKey}
+                />
+              )}
             </div>
-            {/* 직접 편집 textarea */}
-            <textarea
-              ref={textareaRef}
-              className="input font-mono text-xs leading-relaxed resize-none"
-              rows={16}
-              value={template.processedText}
-              onChange={e => setTemplate({ ...template, processedText: e.target.value })}
-              placeholder="문서 텍스트를 직접 수정하세요. {{key}} 형태로 치환자를 삽입할 수 있습니다."
-              spellCheck={false}
-            />
-            <p className="text-xs text-gray-400 mt-1">직접 <code className="bg-gray-100 px-1 rounded">{'{{key}}'}</code> 형태로 입력하거나, 오른쪽 필드의 삽입 버튼을 사용하세요.</p>
+            <button
+              type="button"
+              className="text-xs text-gray-500 hover:text-gray-800 underline"
+              onClick={() => setShowTextEditor(v => !v)}
+            >
+              {showTextEditor ? '▲ 텍스트 직접 편집 닫기' : '▼ 텍스트 직접 편집 (고급)'}
+            </button>
+            {showTextEditor && (
+              <div className="mt-2">
+                <textarea
+                  ref={textareaRef}
+                  className="input font-mono text-xs leading-relaxed resize-none"
+                  rows={10}
+                  value={template.processedText}
+                  onChange={e =>
+                    setTemplate({
+                      ...template,
+                      processedText: e.target.value,
+                      fields: fieldsFromProcessedText(e.target.value, template.fields),
+                    })
+                  }
+                  placeholder="processedText — {{key}} 직접 수정"
+                  spellCheck={false}
+                />
+                <p className="text-xs text-gray-400 mt-1">
+                  수정 후 필드 목록이 자동으로 다시 묶입니다. 커서 위치에 삽입은 오른쪽 필드의 「삽입」 버튼을 사용하세요.
+                </p>
+              </div>
+            )}
           </div>
 
           {/* 오른쪽: 치환자 목록 */}
-          <div>
+          <div className="lg:col-span-2">
             <div className="flex items-center justify-between mb-2">
               <label className="label mb-0">치환자 목록 {template.fields.length}개</label>
               <button
@@ -355,7 +406,7 @@ export default function AdminPage() {
                   onChange={e => setNewFieldLabel(e.target.value)}
                 />
                 <div className="flex gap-1.5">
-                  {(['text', 'date', 'select', 'textarea'] as const).map(t => (
+                  {(['text', 'date', 'select', 'checkbox', 'textarea'] as const).map(t => (
                     <button
                       key={t}
                       onClick={() => setNewFieldType(t)}
@@ -380,7 +431,11 @@ export default function AdminPage() {
 
             <div className="space-y-2 max-h-[480px] overflow-y-auto pr-1">
               {template.fields.map((f, i) => (
-                <div key={f.key} className="card p-3 space-y-1.5">
+                <div
+                  key={f.key}
+                  className={`card p-3 space-y-1.5 cursor-pointer transition-all ${activeFieldKey === f.key ? 'ring-2 ring-brand-400 border-brand-300' : ''}`}
+                  onClick={() => setActiveFieldKey(f.key)}
+                >
                   <div className="flex items-center justify-between">
                     <span className="chip text-xs">{`{{${f.key}}}`}</span>
                     <div className="flex gap-1">
@@ -407,7 +462,7 @@ export default function AdminPage() {
                     placeholder="레이블"
                   />
                   <div className="flex gap-1.5 flex-wrap">
-                    {(['text', 'date', 'select', 'textarea'] as const).map(t => (
+                    {(['text', 'date', 'select', 'checkbox', 'textarea'] as const).map(t => (
                       <button
                         key={t}
                         onClick={() => updateField(i, { type: t })}
